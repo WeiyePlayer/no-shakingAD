@@ -178,6 +178,19 @@ class ShizukuHelper(
     }
 
     /**
+     * Restrict sensors and auto-enable after delayMs, running entirely in UserService.
+     * Survives app process death because UserService is a separate privileged process.
+     */
+    fun restrictSensorsRemote(filter: String, delayMs: Int): String? {
+        return try {
+            userService?.restrictSensors(filter, delayMs)
+        } catch (e: Exception) {
+            Log.e(TAG, "restrictSensorsRemote failed", e)
+            null
+        }
+    }
+
+    /**
      * Clean up resources.
      */
     fun destroy() {

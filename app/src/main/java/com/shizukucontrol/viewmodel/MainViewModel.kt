@@ -1,9 +1,11 @@
 package com.shizukucontrol.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shizukucontrol.data.PreferencesManager
@@ -29,7 +31,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferencesManager(app)
     val shizukuHelper = ShizukuHelper(app, viewModelScope)
 
-    // State holders
     private val _shizukuStatus = MutableStateFlow(ShizukuStatus.LOADING)
     val shizukuStatus: StateFlow<ShizukuStatus> = _shizukuStatus.asStateFlow()
 
@@ -42,8 +43,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _targetApp = MutableStateFlow<TargetApp?>(null)
     val targetApp: StateFlow<TargetApp?> = _targetApp.asStateFlow()
 
-    private val _isServiceRunning = MutableStateFlow(false)
-    val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
+    private val _isA11yRunning = MutableStateFlow(false)
+    val isA11yRunning: StateFlow<Boolean> = _isA11yRunning.asStateFlow()
 
     private var recoveryJob: Job? = null
     private var lastRestrictTime: Long = 0
@@ -64,7 +65,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         shizukuHelper.setOnServiceConnected {
-            Log.d(TAG, "UserService bound, checking sensor state")
+            Log.d(TAG, "UserService bound")
             shizukuHelper.shouldAutoRebind = true
             viewModelScope.launch {
                 _shizukuStatus.emit(ShizukuStatus.READY)
@@ -73,9 +74,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         shizukuHelper.setOnServiceDisconnected {
             Log.w(TAG, "UserService lost")
-            viewModelScope.launch {
-                _sensorState.emit(SensorState.UNKNOWN)
-            }
+            viewModelScope.launch { _sensorState.emit(SensorState.UNKNOWN) }
         }
     }
 
@@ -85,11 +84,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         when (status) {
             ShizukuStatus.NEED_PERMISSION -> shizukuHelper.requestPermission()
             ShizukuStatus.READY -> shizukuHelper.bindUserService()
-            else -> { /* Will show install guide in UI */ }
+            else -> {}
         }
     }
 
-    // ── Foreground Detection ───────────────────────────────────────
+    // ── Foreground Detection via AccessibilityService ─────────────
 
     private fun setupForegroundDetection() {
         AppDetectionService.onForegroundAppChanged = { packageName ->
@@ -100,36 +99,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun handleForegroundChange(packageName: String?) {
-        val prevApp = _currentForegroundApp.value
-        _currentForegroundApp.emit(packageName)
-        _isServiceRunning.emit(AppDetectionService.isRunning)
+        _isA11yRunning.emit(AppDetectionService.isRunning)
 
         val target = _targetApp.value ?: return
         if (packageName == null) return
+        val prevApp = _currentForegroundApp.value
+        _currentForegroundApp.emit(packageName)
 
-        val prevIsTarget = prevApp == target.packageName
-        val currentIsTarget = packageName == target.packageName
-        val isSelf = packageName == app.packageName
-
-        if (isSelf) return
+        if (packageName == app.packageName) return
 
         val now = System.currentTimeMillis()
-        if (now - lastRestrictTime < DEBOUNCE_MS) {
-            Log.d(TAG, "Debounced: too soon since last restrict")
-            return
-        }
+        if (now - lastRestrictTime < DEBOUNCE_MS) return
 
-        when {
-            currentIsTarget && !prevIsTarget -> {
-                recoveryJob?.cancel()
-                Log.d(TAG, "Target app entered: $packageName → restricting sensors")
-                restrictSensors()
-                lastRestrictTime = now
-            }
-            !currentIsTarget && prevIsTarget -> {
-                Log.d(TAG, "Target app left: $prevApp → scheduling recovery in ${RECOVERY_DELAY_MS}ms")
-                scheduleRecovery()
-            }
+        val currentIsTarget = packageName == target.packageName
+
+        if (currentIsTarget) {
+            recoveryJob?.cancel()
+            Log.d(TAG, "Target app entered: $packageName → restricting, auto-recovery in ${RECOVERY_DELAY_MS}ms")
+            restrictSensors()
+            lastRestrictTime = now
         }
     }
 
@@ -144,9 +132,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     append(target.packageName)
                     if (whitelist.isNotEmpty()) append("|").append(whitelist)
                 }
-                val result = shizukuHelper.executeShell("dumpsys sensorservice restrict $packages")
-                Log.d(TAG, "Restrict result: $result")
-                if (result != null && !result.startsWith("ERROR")) {
+                val result = shizukuHelper.restrictSensorsRemote(packages, RECOVERY_DELAY_MS.toInt())
+                Log.d(TAG, "restrictSensorsRemote result: $result")
+                if (result != null && result.startsWith("OK")) {
                     _sensorState.emit(SensorState.RESTRICTED)
                 } else {
                     _sensorState.emit(SensorState.ERROR)
@@ -158,29 +146,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun scheduleRecovery() {
-        recoveryJob?.cancel()
-        recoveryJob = viewModelScope.launch {
-            delay(RECOVERY_DELAY_MS)
-            Log.d(TAG, "Recovery timer fired → enabling sensors")
-            enableSensors()
-        }
-    }
-
     fun enableSensors() {
         viewModelScope.launch {
             try {
-                recoveryJob?.cancel()
-                recoveryJob = null
                 val result = shizukuHelper.executeShell("dumpsys sensorservice enable")
-                Log.d(TAG, "Enable result: $result")
                 if (result != null && !result.startsWith("ERROR")) {
                     _sensorState.emit(SensorState.NORMAL)
                 } else {
                     _sensorState.emit(SensorState.ERROR)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "enableSensors failed", e)
                 _sensorState.emit(SensorState.ERROR)
             }
         }
@@ -199,15 +174,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     result.startsWith("ERROR") -> _sensorState.emit(SensorState.ERROR)
                     else -> _sensorState.emit(SensorState.UNKNOWN)
                 }
-            } else {
-                Log.e(TAG, "refreshSensorState: result was null")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "refreshSensorState failed", e)
-        }
+        } catch (e: Exception) { Log.e(TAG, "refreshSensorState failed", e) }
     }
 
-    // ── Target App Management ──────────────────────────────────────
+    // ── Target App ─────────────────────────────────────────────────
 
     private fun loadSavedTarget() {
         viewModelScope.launch {
@@ -223,9 +194,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _targetApp.emit(TargetApp(packageName, appName))
             prefs.setTargetApp(packageName, appName)
-            if (_currentForegroundApp.value == packageName) {
-                restrictSensors()
-            }
         }
     }
 
@@ -236,11 +204,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ── Service Status ─────────────────────────────────────────────
+    // ── A11y Service ───────────────────────────────────────────────
 
-    fun isAccessibilityServiceEnabled(): Boolean {
-        return AppDetectionService.isRunning
-    }
+    fun checkA11yRunning(): Boolean = AppDetectionService.isRunning
 
     fun openAccessibilitySettings() {
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -248,7 +214,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         app.startActivity(intent)
     }
 
-    // ── Cleanup ────────────────────────────────────────────────────
+    // ── Refresh ─────────────────────────────────────────────────────
+
+    fun manualRestrict() {
+        viewModelScope.launch {
+            try {
+                val target = _targetApp.value
+                if (target == null) return@launch
+                val whitelist = prefs.getWhitelistForCommand()
+                val packages = buildString {
+                    append(target.packageName)
+                    if (whitelist.isNotEmpty()) append("|").append(whitelist)
+                }
+                val result = shizukuHelper.executeShell("dumpsys sensorservice restrict $packages")
+                Log.d(TAG, "Manual restrict result: $result")
+                if (result != null && !result.startsWith("ERROR")) {
+                    _sensorState.emit(SensorState.RESTRICTED)
+                } else {
+                    _sensorState.emit(SensorState.ERROR)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "manualRestrict failed", e)
+                _sensorState.emit(SensorState.ERROR)
+            }
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            refreshSensorState()
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()

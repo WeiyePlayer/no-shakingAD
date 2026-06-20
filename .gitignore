@@ -10,3 +10,7 @@
 local.properties
 *.txt
 app/build/
+gradle/wrapper/gradle-wrapper.jar
+gradlew
+gradlew.bat
+ShizukuControl-*.apk

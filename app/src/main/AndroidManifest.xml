@@ -2,10 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Shizuku permission -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
-    <!-- Query installed apps for app selector -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
@@ -23,7 +21,6 @@
         android:theme="@style/Theme.ShizukuControl"
         tools:targetApi="35">
 
-        <!-- Shizuku Provider -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
@@ -43,7 +40,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Accessibility Service for foreground app detection -->
+        <!-- Accessibility Service -->
         <service
             android:name=".service.AppDetectionService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -57,7 +54,6 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Shizuku UserService (declared for Shizuku to discover) -->
         <service
             android:name=".service.SensorControlUserService"
             android:exported="false" />

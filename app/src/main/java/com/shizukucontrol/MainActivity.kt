@@ -6,7 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.launch
 import com.shizukucontrol.data.model.SensorState
 import com.shizukucontrol.ui.screens.MainScreen
 import com.shizukucontrol.ui.screens.SplashScreen
@@ -29,15 +28,13 @@ class MainActivity : ComponentActivity() {
                 val sensorState by viewModel.sensorState.collectAsState()
                 val targetApp by viewModel.targetApp.collectAsState()
                 val foregroundApp by viewModel.currentForegroundApp.collectAsState()
-                val isServiceRunning by viewModel.isServiceRunning.collectAsState()
+                val isA11yRunning by viewModel.isA11yRunning.collectAsState()
 
                 if (!showMain) {
                     SplashScreen(
                         shizukuStatus = shizukuStatus,
                         onCheckStatus = { viewModel.checkShizukuAndRequest() },
-                        onRequestPermission = {
-                            viewModel.shizukuHelper.requestPermission()
-                        },
+                        onRequestPermission = { viewModel.shizukuHelper.requestPermission() },
                         onNavigateToMain = { showMain = true }
                     )
                 } else {
@@ -45,36 +42,20 @@ class MainActivity : ComponentActivity() {
                         sensorState = sensorState,
                         targetApp = targetApp,
                         currentForegroundApp = foregroundApp,
-                        isServiceRunning = isServiceRunning,
-                        onSelectTargetApp = { app ->
-                            viewModel.setTargetApp(app.packageName, app.appName)
-                        },
+                        isA11yRunning = isA11yRunning,
+                        onSelectTargetApp = { app -> viewModel.setTargetApp(app.packageName, app.appName) },
                         onClearTargetApp = { viewModel.clearTargetApp() },
                         onToggleSensor = {
                             when (sensorState) {
                                 SensorState.RESTRICTED -> viewModel.enableSensors()
-                                else -> {
-                                    val app = targetApp
-                                    if (app != null) {
-                                        scope.launch {
-                                            viewModel.refreshSensorState()
-                                        }
-                                        viewModel.setTargetApp(app.packageName, app.appName)
-                                    }
-                                }
+                                else -> viewModel.manualRestrict()
                             }
                         },
-                        onRefreshState = {
-                            scope.launch { viewModel.refreshSensorState() }
-                        },
+                        onRefreshState = { viewModel.refresh() },
                         onOpenAccessibilitySettings = { viewModel.openAccessibilitySettings() }
                     )
                 }
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
     }
 }

@@ -11,10 +11,6 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.shizukucontrol.MainActivity
 
-/**
- * AccessibilityService that detects foreground app switches in real-time.
- * Sends package name changes via a global callback.
- */
 class AppDetectionService : AccessibilityService() {
 
     companion object {
@@ -22,10 +18,7 @@ class AppDetectionService : AccessibilityService() {
         private const val NOTIFICATION_CHANNEL_ID = "app_detection"
         private const val NOTIFICATION_ID = 1001
 
-        /** Global callback for foreground app changes. Set from MainViewModel. */
         var onForegroundAppChanged: ((String?) -> Unit)? = null
-
-        /** Whether the service is currently running. */
         var isRunning: Boolean = false
             private set
     }
@@ -40,7 +33,7 @@ class AppDetectionService : AccessibilityService() {
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-            notificationTimeout = 0 // Real-time: no batching delay
+            notificationTimeout = 0
         }
 
         startForegroundNotification()
@@ -80,8 +73,7 @@ class AppDetectionService : AccessibilityService() {
         notificationManager.createNotificationChannel(channel)
 
         val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
+            this, 0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
