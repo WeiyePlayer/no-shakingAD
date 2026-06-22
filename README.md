@@ -141,3 +141,9 @@ app/src/main/java/com/shizukucontrol/
 ```
 
 APK 输出路径：`app/build/outputs/apk/debug/app-debug.apk`
+
+## 打赏
+
+如果本程序对你有帮助，希望能得到你的打赏支持，感谢！
+
+![打赏码](images/打赏码.jpg)
